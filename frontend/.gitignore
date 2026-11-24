@@ -1,0 +1,19 @@
+# Dependências e builds
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.tsbuildinfo
+
+# Variáveis de ambiente e segredos (RNF08 / CA12)
+.env
+.env.local
+.env.*.local
+
+# Logs e editor
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
