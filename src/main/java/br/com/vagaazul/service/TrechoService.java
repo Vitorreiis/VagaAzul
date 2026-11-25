@@ -60,9 +60,9 @@ public class TrechoService {
 
         int totalVagas = trecho.getQuantidadeTotalVagas();
 
-        // Gera um número entre 0 e totalVagas
-        int novasVagasOcupadas = ThreadLocalRandom.current()
-                .nextInt(totalVagas);
+        // Gera uma ocupação entre zero e a capacidade total, inclusive.
+        int novasVagasOcupadas = (int) ThreadLocalRandom.current()
+                .nextLong(0, (long) totalVagas + 1);
 
         OcupacaoSimulada ocupacao = ocupacaoRepository
                 .findByTrechoId(id)
@@ -84,6 +84,13 @@ public class TrechoService {
         return converterParaResponse(trecho);
     }
 
+    @Transactional
+    public List<TrechoResponse> simularTodos() {
+        return trechoRepository.findAll()
+                .stream()
+                .map(trecho -> simularOcupacao(trecho.getId()))
+                .toList();
+    }
 
     @Transactional
     public TrechoResponse atualizarOcupacao(Long id, Integer vagasOcupadas) {

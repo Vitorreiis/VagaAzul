@@ -8,6 +8,7 @@ import br.com.vagaazul.entity.Trecho;
 import br.com.vagaazul.repository.OcupacaoSimuladaRepository;
 import br.com.vagaazul.repository.TrechoRepository;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -32,20 +33,23 @@ class TrechoServiceTest {
     private OcupacaoSimuladaRepository ocupacaoRepository;
 
     private TrechoService trechoService;
+    private AutoCloseable mocks;
 
     @BeforeEach
     void configurar() {
-        MockitoAnnotations.openMocks(this);
-
+        mocks = MockitoAnnotations.openMocks(this);
         trechoService = new TrechoService(
                 trechoRepository,
                 ocupacaoRepository
         );
     }
 
-    private Trecho criarTrecho(int totalVagas) {
-        Bairro bairro = mock(Bairro.class);
+    @AfterEach
+    void encerrar() throws Exception {
+        mocks.close();
+    }
 
+    private Trecho criarTrecho(int totalVagas) {
         Trecho trecho = mock(Trecho.class);
 
         when(trecho.getId()).thenReturn(1L);
@@ -333,7 +337,7 @@ class TrechoServiceTest {
         assertNotNull(resultado.vagasOcupadas());
 
         assertTrue(resultado.vagasOcupadas() >= 0);
-        assertTrue(resultado.vagasOcupadas() < 20);
+        assertTrue(resultado.vagasOcupadas() <= 20);
 
         assertEquals(
                 20,
@@ -361,5 +365,80 @@ class TrechoServiceTest {
 
         verify(ocupacaoRepository, never())
                 .saveAndFlush(any());
+    }
+
+    @Test
+    void deveRetornarListaVaziaAoSimularSemTrechos() {
+        when(trechoRepository.findAll())
+                .thenReturn(List.of());
+
+        List<TrechoResponse> resultado =
+                trechoService.simularTodos();
+
+        assertTrue(resultado.isEmpty());
+
+        verify(ocupacaoRepository, never())
+                .saveAndFlush(any());
+    }
+
+    @Test
+    void deveSimularOcupacaoDeTodosOsTrechos() {
+        Trecho trecho1 = criarTrecho(20);
+        Trecho trecho2 = criarTrecho(15);
+
+        when(trecho2.getId()).thenReturn(2L);
+
+        Bairro bairro = mock(Bairro.class);
+        when(bairro.getNome()).thenReturn("Pituaçu");
+
+        when(trecho1.getBairro()).thenReturn(bairro);
+        when(trecho2.getBairro()).thenReturn(bairro);
+
+        OcupacaoSimulada ocupacao1 = new OcupacaoSimulada(
+                trecho1, 5, LocalDateTime.now()
+        );
+
+        OcupacaoSimulada ocupacao2 = new OcupacaoSimulada(
+                trecho2, 3, LocalDateTime.now()
+        );
+
+        when(trechoRepository.findAll())
+                .thenReturn(List.of(trecho1, trecho2));
+
+        when(trechoRepository.findById(1L))
+                .thenReturn(Optional.of(trecho1));
+
+        when(trechoRepository.findById(2L))
+                .thenReturn(Optional.of(trecho2));
+
+        when(ocupacaoRepository.findByTrechoId(1L))
+                .thenReturn(Optional.of(ocupacao1));
+
+        when(ocupacaoRepository.findByTrechoId(2L))
+                .thenReturn(Optional.of(ocupacao2));
+
+        List<TrechoResponse> resultado =
+                trechoService.simularTodos();
+
+        assertEquals(2, resultado.size());
+        assertEquals(1L, resultado.get(0).id());
+        assertEquals(2L, resultado.get(1).id());
+
+        for (TrechoResponse trecho : resultado) {
+            assertTrue(trecho.vagasOcupadas() >= 0);
+
+            assertTrue(trecho.vagasOcupadas()
+                    <= trecho.quantidadeTotalVagas());
+
+            assertEquals(
+                    trecho.quantidadeTotalVagas().intValue(),
+                    trecho.vagasOcupadas() + trecho.vagasLivres()
+            );
+
+            assertTrue(trecho.ocupacaoSimulada());
+        }
+
+        verify(ocupacaoRepository).saveAndFlush(ocupacao1);
+        verify(ocupacaoRepository).saveAndFlush(ocupacao2);
     }
 }
