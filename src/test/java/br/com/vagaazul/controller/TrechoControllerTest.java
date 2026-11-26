@@ -7,7 +7,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.server.ResponseStatusException;
@@ -173,5 +172,34 @@ class TrechoControllerTest {
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(trechoService);
+    }
+
+    @Test
+    void deveSimularOcupacaoDeTodosOsTrechos() throws Exception {
+        when(trechoService.simularTodos())
+                .thenReturn(List.of(criarResposta()));
+
+        mockMvc.perform(post("/trechos/simular"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].id").value(1))
+                .andExpect(jsonPath("$[0].quantidadeTotalVagas").value(20))
+                .andExpect(jsonPath("$[0].vagasOcupadas").value(12))
+                .andExpect(jsonPath("$[0].vagasLivres").value(8))
+                .andExpect(jsonPath("$[0].ocupacaoSimulada").value(true));
+
+        verify(trechoService).simularTodos();
+    }
+
+    @Test
+    void deveRetornarListaVaziaAoSimularSemTrechos() throws Exception {
+        when(trechoService.simularTodos())
+                .thenReturn(List.of());
+
+        mockMvc.perform(post("/trechos/simular"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+
+        verify(trechoService).simularTodos();
     }
 }

@@ -23,24 +23,32 @@ public class TrechoController {
     private final TrechoService trechoService;
 
     public TrechoController(TrechoService trechoService) {
+
         this.trechoService = trechoService;
     }
 
     @GetMapping
     public List<TrechoResponse> listarTodos() {
+
         return trechoService.listarTodos();
     }
 
     @GetMapping("/{id}")
     public TrechoResponse buscarPorId(@PathVariable Long id) {
+
         return trechoService.buscarPorId(id);
     }
 
     @PostMapping("/{id}/simular")
     public TrechoResponse simularOcupacao(@PathVariable Long id) {
+
         return trechoService.simularOcupacao(id);
     }
 
+    @PostMapping("/simular")
+    public List<TrechoResponse> simularTodos() {
+        return trechoService.simularTodos();
+    }
 
     @PutMapping("/{id}/ocupacao")
     public TrechoResponse atualizarOcupacao(
