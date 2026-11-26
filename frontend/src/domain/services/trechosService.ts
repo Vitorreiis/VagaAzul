@@ -1,4 +1,4 @@
-import {
+import type {
   ErroOcupacao,
   FiltroDisponibilidade,
   StatusOcupacao,
@@ -7,26 +7,30 @@ import {
 } from '../models/Trecho';
 
 export type ResultadoValidacaoOcupacao =
-  | { valido: true; vagasLivres: number }
-  | { valido: false; erro: ErroOcupacao };
+    | { valido: true }
+    | { valido: false; erro: ErroOcupacao };
 
-/**
- * Valida a capacidade total e a ocupação simulada e calcula vagas livres (RN02, RN03).
- * Implementa exatamente as 4 decisões especificadas na Seção 3.1 do Plano de Testes:
- * D1: total inválido -> TOTAL_INVALIDO
- * D2: ocupadas não inteiro -> OCUPACAO_INVALIDA
- * D3: ocupadas < 0 -> OCUPACAO_NEGATIVA
- * D4: ocupadas > total -> OCUPACAO_EXCEDE_TOTAL
- */
 export function validarOcupacao(
-  total: unknown,
-  ocupadas: unknown
+    total: unknown,
+    ocupadas: unknown,
+    livres: unknown
 ): ResultadoValidacaoOcupacao {
-  if (typeof total !== 'number' || !Number.isInteger(total) || total < 0) {
+  if (
+      typeof total !== 'number' ||
+      !Number.isSafeInteger(total) ||
+      total <= 0
+  ) {
     return { valido: false, erro: 'TOTAL_INVALIDO' };
   }
 
-  if (typeof ocupadas !== 'number' || !Number.isInteger(ocupadas)) {
+  if (ocupadas === null) {
+    return { valido: false, erro: 'OCUPACAO_INDISPONIVEL' };
+  }
+
+  if (
+      typeof ocupadas !== 'number' ||
+      !Number.isSafeInteger(ocupadas)
+  ) {
     return { valido: false, erro: 'OCUPACAO_INVALIDA' };
   }
 
@@ -38,25 +42,40 @@ export function validarOcupacao(
     return { valido: false, erro: 'OCUPACAO_EXCEDE_TOTAL' };
   }
 
-  return { valido: true, vagasLivres: total - ocupadas };
+  if (livres === null) {
+    return { valido: false, erro: 'OCUPACAO_INDISPONIVEL' };
+  }
+
+  if (
+      typeof livres !== 'number' ||
+      !Number.isSafeInteger(livres) ||
+      livres < 0 ||
+      livres > total ||
+      livres !== total - ocupadas
+  ) {
+    return {
+      valido: false,
+      erro: 'VAGAS_LIVRES_INCONSISTENTES',
+    };
+  }
+
+  return { valido: true };
 }
 
 /**
- * Decide se um trecho deve receber marcador no mapa (RF01, RN05).
- * D1: lat/lon ausentes ou não numéricos -> false
- * D2: lat fora de [-90, 90] ou lon fora de [-180, 180] -> false
- * D3: coordenadas não verificadas -> false
+ * Permite marcadores somente para coordenadas
+ * numericamente válidas e previamente verificadas.
  */
 export function avaliarMarcador(
-  lat: unknown,
-  lon: unknown,
-  verificada: unknown
+    lat: unknown,
+    lon: unknown,
+    verificada: unknown
 ): boolean {
   if (
-    typeof lat !== 'number' ||
-    typeof lon !== 'number' ||
-    !Number.isFinite(lat) ||
-    !Number.isFinite(lon)
+      typeof lat !== 'number' ||
+      typeof lon !== 'number' ||
+      !Number.isFinite(lat) ||
+      !Number.isFinite(lon)
   ) {
     return false;
   }
@@ -65,41 +84,51 @@ export function avaliarMarcador(
     return false;
   }
 
-  if (verificada !== true) {
-    return false;
-  }
-
-  return true;
+  return verificada === true;
 }
 
 /**
- * Classifica o nível de disponibilidade para exibição visual (Verde, Amarelo, Vermelho):
- * - Livre: >= 40% das vagas livres
- * - Pouca vaga: entre 1% e 39% livres
- * - Ocupado: 0 vagas livres
+ * Classifica a disponibilidade para apresentação visual.
+ * Livre: pelo menos 40% das vagas disponíveis.
+ * Pouca vaga: disponibilidade positiva inferior a 40%.
+ * Ocupado: nenhuma vaga disponível.
+ * Indisponível: dados ausentes ou inválidos.
  */
-export function calcularStatus(vagasTotais: number, vagasLivres: number): StatusOcupacao {
-  if (vagasLivres <= 0 || vagasTotais <= 0) {
+export function calcularStatus(
+    vagasTotais: number,
+    vagasLivres: number | null
+): StatusOcupacao {
+  if (
+      !Number.isSafeInteger(vagasTotais) ||
+      vagasTotais <= 0 ||
+      vagasLivres === null ||
+      !Number.isSafeInteger(vagasLivres) ||
+      vagasLivres < 0 ||
+      vagasLivres > vagasTotais
+  ) {
+    return 'indisponivel';
+  }
+
+  if (vagasLivres === 0) {
     return 'ocupado';
   }
 
-  const proporcaoLivre = vagasLivres / vagasTotais;
-  if (proporcaoLivre >= 0.4) {
-    return 'livre';
-  }
-
-  return 'pouca_vaga';
+  return vagasLivres / vagasTotais >= 0.4
+      ? 'livre'
+      : 'pouca_vaga';
 }
 
 /**
- * Garante unicidade do identificador `id` na coleção de trechos (RN04 / CT08).
+ * Verifica a unicidade dos identificadores recebidos.
  */
-export function validarIdentificadoresUnicos(trechos: Trecho[]): {
+export function validarIdentificadoresUnicos(
+    trechos: Trecho[]
+): {
   valido: boolean;
-  duplicados: string[];
+  duplicados: number[];
 } {
-  const vistos = new Set<string>();
-  const duplicados = new Set<string>();
+  const vistos = new Set<number>();
+  const duplicados = new Set<number>();
 
   for (const trecho of trechos) {
     if (vistos.has(trecho.id)) {
@@ -116,131 +145,131 @@ export function validarIdentificadoresUnicos(trechos: Trecho[]): {
 }
 
 /**
- * Tenta cadastrar um novo trecho em uma base existente rejeitando IDs duplicados (CT08).
+ * Enriquece o modelo de domínio com informações
+ * necessárias à apresentação.
  */
-export function adicionarTrechoSemDuplicidade(
-  baseAtual: Trecho[],
-  novoTrecho: Trecho
-): { aceito: boolean; base: Trecho[]; motivo?: string } {
-  const existe = baseAtual.some((item) => item.id === novoTrecho.id);
-  if (existe) {
-    return {
-      aceito: false,
-      base: baseAtual,
-      motivo: `Identificador duplicado: ${novoTrecho.id}`,
-    };
-  }
-
-  return {
-    aceito: true,
-    base: [...baseAtual, novoTrecho],
-  };
-}
-
-/**
- * Converte um registro bruto em TrechoCalculado com validações aplicadas.
- */
-export function processarTrecho(trecho: Trecho): TrechoCalculado {
-  const validacao = validarOcupacao(trecho.vagasTotais, trecho.ocupacaoSimulada);
-  const vagasLivres = validacao.valido ? validacao.vagasLivres : 0;
-  const status = validacao.valido
-    ? calcularStatus(trecho.vagasTotais, vagasLivres)
-    : 'ocupado';
-
-  const exibirNoMapa = avaliarMarcador(
-    trecho.coordenadas?.lat,
-    trecho.coordenadas?.lng,
-    trecho.coordenadasVerificadas
+export function processarTrecho(
+    trecho: Trecho
+): TrechoCalculado {
+  const validacao = validarOcupacao(
+      trecho.quantidadeTotalVagas,
+      trecho.vagasOcupadas,
+      trecho.vagasLivres
   );
 
-  const bairroLimpo = trecho.bairro?.trim();
+  const status = validacao.valido
+      ? calcularStatus(
+          trecho.quantidadeTotalVagas,
+          trecho.vagasLivres
+      )
+      : 'indisponivel';
+
+  const exibirNoMapa = avaliarMarcador(
+      trecho.coordenadas?.lat,
+      trecho.coordenadas?.lng,
+      trecho.coordenadasVerificadas
+  );
 
   return {
     ...trecho,
-    bairroExibicao: bairroLimpo && bairroLimpo.length > 0 ? bairroLimpo : 'Bairro não informado',
-    vagasLivres,
+    bairroExibicao:
+        trecho.bairro?.trim() || 'Bairro não informado',
+    vagasOcupadas: validacao.valido
+        ? trecho.vagasOcupadas
+        : null,
+    vagasLivres: validacao.valido
+        ? trecho.vagasLivres
+        : null,
     status,
     exibirNoMapa,
     dadosValidos: validacao.valido,
-    erroValidacao: validacao.valido ? undefined : validacao.erro,
+    erroValidacao: validacao.valido
+        ? undefined
+        : validacao.erro,
   };
 }
 
-/**
- * Processa todos os trechos ativos garantindo base única para Mapa, Lista e Detalhes (CA02).
- */
-export function processarTrechos(trechos: Trecho[]): TrechoCalculado[] {
-  const vistos = new Set<string>();
-  const resultado: TrechoCalculado[] = [];
+export function processarTrechos(
+    trechos: Trecho[]
+): TrechoCalculado[] {
+  const validacao = validarIdentificadoresUnicos(trechos);
 
-  for (const trecho of trechos) {
-    if (trecho.ativo === false) {
-      continue;
-    }
-    if (vistos.has(trecho.id)) {
-      continue;
-    }
-    vistos.add(trecho.id);
-    resultado.push(processarTrecho(trecho));
+  if (!validacao.valido) {
+    throw new Error(
+        `Identificadores de trechos duplicados: ${validacao.duplicados.join(', ')}.`
+    );
   }
 
-  return resultado;
+  return trechos.map(processarTrecho);
 }
 
 function normalizarTexto(texto: string): string {
   return texto
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
 }
 
-/**
- * Filtra trechos por busca textual (rua, bairro ou referência) e por estado de ocupação.
- */
 export function filtrarTrechos(
-  trechos: TrechoCalculado[],
-  busca: string,
-  filtro: FiltroDisponibilidade,
-  bairroFiltro?: string
+    trechos: TrechoCalculado[],
+    busca: string,
+    filtro: FiltroDisponibilidade,
+    bairroFiltro?: string
 ): TrechoCalculado[] {
   const termo = normalizarTexto(busca);
-  const bairroAlvo = bairroFiltro ? normalizarTexto(bairroFiltro) : '';
+  const bairroAlvo = bairroFiltro
+      ? normalizarTexto(bairroFiltro)
+      : '';
 
   return trechos.filter((trecho) => {
-    if (filtro === 'livres' && trecho.status !== 'livre') return false;
-    if (filtro === 'pouca_vaga' && trecho.status !== 'pouca_vaga') return false;
-    if (filtro === 'ocupados' && trecho.status !== 'ocupado') return false;
+    if (filtro === 'livres' && trecho.status !== 'livre') {
+      return false;
+    }
+
+    if (
+        filtro === 'pouca_vaga' &&
+        trecho.status !== 'pouca_vaga'
+    ) {
+      return false;
+    }
+
+    if (
+        filtro === 'ocupados' &&
+        trecho.status !== 'ocupado'
+    ) {
+      return false;
+    }
 
     if (bairroAlvo && bairroAlvo !== 'todos') {
-      if (normalizarTexto(trecho.bairroExibicao) !== bairroAlvo) {
+      if (
+          normalizarTexto(trecho.bairroExibicao) !== bairroAlvo
+      ) {
         return false;
       }
     }
 
-    if (!termo) return true;
+    if (!termo) {
+      return true;
+    }
 
     const alvo = normalizarTexto(
-      `${trecho.logradouro} ${trecho.bairroExibicao} ${trecho.referencia ?? ''} ${trecho.id}`
+        `${trecho.logradouro} ${trecho.bairroExibicao} ${trecho.id}`
     );
+
     return alvo.includes(termo);
   });
 }
 
-/**
- * Retorna apenas os trechos elegíveis para exibição no mapa (RF01, RN05).
- */
-export function obterTrechosParaMapa(trechos: TrechoCalculado[]): TrechoCalculado[] {
+export function obterTrechosParaMapa(
+    trechos: TrechoCalculado[]
+): TrechoCalculado[] {
   return trechos.filter((trecho) => trecho.exibirNoMapa);
 }
 
-/**
- * Recupera um trecho pelo identificador único (UC03, CT12).
- */
 export function buscarTrechoPorId(
-  trechos: TrechoCalculado[],
-  id: string
+    trechos: TrechoCalculado[],
+    id: number
 ): TrechoCalculado | undefined {
   return trechos.find((trecho) => trecho.id === id);
 }
-
